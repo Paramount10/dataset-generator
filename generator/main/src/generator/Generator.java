@@ -38,6 +38,8 @@ public class Generator {
    int qcsPeriod;
    // lastRow: The last row in the dataset
    int finalRow;
+   // 2/18/25 lastSteadyStateRow: The last row in the dataset
+   int lastSteadyStateRow;
    // numInputs: The number of input variables
    int numInputs;
    // numOutputs: The number of output variables
@@ -50,6 +52,8 @@ public class Generator {
    int coupledMoves;
    // uncoupledMoves: The number of uncoupled moves
    int uncoupledMoves;
+   // 2/18/25 isolatedMoves: The number of isolated moves
+   int isolatedMoves;
    // trim: The trim value
    double trim;
    // draw: The draw value
@@ -76,6 +80,8 @@ public class Generator {
       labPeriod = process.get("Lab").intValue();
       pulpeyePeriod = process.get("Pulpeye").intValue();
       uncoupledMoves = process.get("Uncoupled").intValue();
+	// 2/18/25 add isolated moves
+      isolatedMoves = 10; // process.get("Isolated").intValue();
       trim = process.get("Trim");
       draw = process.get("Draw");
       coupledMoves = process.get("Coupled").intValue();
@@ -246,6 +252,9 @@ public class Generator {
     * Determines the number of rows to represent each move, it needs to be the longer of the MV settling time or the lab sample period
     */
    public void createInputs(){
+
+	System.out.println("createInputs");
+
       double rowsPerMove = inputSettle / processPeriod;
       int rowsPerProcess = 1;
       int firstRow = 3;
@@ -270,7 +279,7 @@ public class Generator {
          }
          lastRow = row;
       }
-      int lastSteadyStateRow = lastRow;
+      lastSteadyStateRow = lastRow;
 
       // Uncoupled moves rows
       // Moves inputs uncoupled (independently)
@@ -329,7 +338,168 @@ public class Generator {
             lastMove = move;
          }
       }
+
+	System.out.println("createInputs row " + row + " lastRow " + lastRow );
       int lastInRow = lastRow;
+
+
+
+      // Set all inputs to average for settling time
+      for (int i = 2; i < lastInCol; i++) {
+         double min = Double.parseDouble(input.get(9, i));
+         double max = Double.parseDouble(input.get(8, i));
+         double avg = min + (max - min) / 2;
+         double noise = Double.parseDouble(input.get(6, i));
+         double sinePeriod = Double.parseDouble(input.get(10, i));
+         double amplitude = Double.parseDouble(input.get(11, i));
+
+	System.out.print("createInputs settle 1 input " + i + " avg " + avg + " lastRow " + lastRow);
+	System.out.println();
+
+	// 12/18/25 start at lastInRow
+         for (int j = 1; j <= (rowsPerMove / rowsPerProcess); j++) {
+            double noiseVal = calcNoise(noise);
+            row = lastRow - 1 + rowsPerProcess * j;
+            double sineVal = calcSine(sinePeriod, amplitude, row);
+            data.put(row, i, String.valueOf((avg + noiseVal + sineVal)));
+	System.out.println("createInputs settle 1 input " + i + " avg " + avg + " lastRow " + lastRow  + " row " + row + " data " + String.valueOf((avg + noiseVal + sineVal)) );
+         }
+//         lastRow = row;
+	System.out.print("createInputs settle 1 input " + i + " avg " + avg + " lastRow " + lastRow  + " row " + row);
+	System.out.println();
+      }
+      lastRow = row;
+      lastSteadyStateRow = lastRow;
+	System.out.println("createInputs settle 1 complete lastRow " + lastRow);
+
+// Start isolated moves
+// 3/3/24 Isolated moves rows
+      for (int i = 2; i < lastInCol; i++) 
+	{
+         double min = Double.parseDouble(input.get(9, i));
+         double max = Double.parseDouble(input.get(8, i));
+         double avg = min + (max - min) / 2;
+         int order = Integer.parseInt(input.get(12, i));
+         double sinePeriod = Double.parseDouble(input.get(10, i));
+         double amplitude = Double.parseDouble(input.get(11, i));
+         double stepSize;
+         double move;
+	double priorVal;
+	int moveInc;
+
+	// 2/18/25 Use isolated move count
+
+	System.out.print("createInputs isolated moves input " + i + " avg " + avg + " lastRow " + lastRow + " isolatedMoves " + isolatedMoves);
+	System.out.println();
+
+         if (isolatedMoves != 0)
+            stepSize = (max - min) / isolatedMoves;
+         else
+            stepSize = max - min;
+         double mvLag = Double.parseDouble(input.get(7, i));
+
+         double filter;
+         double mvFilter;
+         if (mvLag <= 0)
+            filter = 1;
+         else
+            filter = 0.63 / (mvLag / (rowsPerProcess * processPeriod));
+         if (filter > 1)
+            mvFilter = 1;
+         else
+            mvFilter = filter;
+
+	// Start from last uncoupled row
+         double noise = Double.parseDouble(input.get(6, i));
+         double lastMove = min;
+	// 2/18/25 Use isolatedMoves
+
+        for (int inputCount = 2; inputCount <= lastInCol; inputCount++) 
+	{
+         	for (int j = 0; j <= isolatedMoves; j++) 
+		{
+			if (order == inputCount) 
+                   		move = min + stepSize * j;
+                	else
+                  		move = avg;
+
+			System.out.flush();
+
+			moveInc = (int) Math.round(rowsPerMove / rowsPerProcess);
+
+//			System.out.println("createInputs isolated moves rowsPerMove " + rowsPerMove);
+//			System.out.println("createInputs isolated moves rowsPerProcess " + rowsPerProcess);
+//			System.out.println("createInputs isolated moves moveInc " + moveInc);
+//			System.out.println("createInputs isolated moves input " + i + " avg " + avg + " lastRow " + lastRow + " isolated move j " + j + " moveInc " + moveInc);
+
+           
+               		for (int x = 1; x <= moveInc; x++) 
+		  	{
+                  		row = lastRow + x + j * moveInc + (inputCount-2)*isolatedMoves*moveInc;
+
+//System.out.println("createInputs isolated moves input " + i + " inputCount " + inputCount + " move " + move + " lastRow " + lastRow + " isolated move j " + j + " row x " + x + " row " + row);
+
+                  		double noiseVal = calcNoise(noise);
+//				System.out.println("createInputs isolated moves noiseVal ");
+                  		double sineVal = calcSine(sinePeriod, amplitude, row);
+//				System.out.println("createInputs isolated moves sineVal ");
+
+//				System.out.println("createInputs isolated moves set priorval row " + row + " input i " + i);
+                  		priorVal = Double.parseDouble(data.get(row-1, i));
+//				System.out.println("createInputs isolated moves priorVal " + priorVal);
+                  		double newVal = priorVal * (1 - mvFilter) + move * mvFilter;
+//				System.out.println("createInputs isolated moves newVal " + newVal);
+                  		if (newVal < min)
+                     			newVal = min;
+                  		else if (newVal > max)
+                     			newVal = max;
+
+//				System.out.println("createInputs isolated moves before data.put input " + i + " inputCount " + inputCount + " moveInc " + moveInc + " newVal " + newVal + " lastRow " + lastRow + " isolated move j " + j + " row x " + x + " row " + row);
+
+                  		data.put(row, i, String.valueOf((newVal + noiseVal + sineVal)));
+
+//				System.out.println("createInputs isolated moves input " + i + " newVal " + newVal + " lastRow " + lastRow + " isolated move j " + j + " row x " + x + " row " + row);
+               	  	}
+		}
+
+//		System.out.print("createInputs isolated moves after data.put input " + i + " lastRow " + lastRow + " row " + row);
+//		System.out.println();
+
+	}
+//        	lastRow = row;
+      }
+	lastRow = row;
+      	lastInRow = lastRow;
+
+	// End of isolated moves
+
+      // Set all inputs to average for settling time
+      for (int i = 2; i < lastInCol; i++) {
+         double min = Double.parseDouble(input.get(9, i));
+         double max = Double.parseDouble(input.get(8, i));
+         double avg = min + (max - min) / 2;
+         double noise = Double.parseDouble(input.get(6, i));
+         double sinePeriod = Double.parseDouble(input.get(10, i));
+         double amplitude = Double.parseDouble(input.get(11, i));
+
+//	System.out.print("createInputs settle 2 input " + i + " avg " + avg + "  lastRow " + lastRow);
+//	System.out.println();
+
+	// 2/18/25 use lastInRow
+         for (int j = 1; j <= (rowsPerMove / rowsPerProcess); j++) {
+            double noiseVal = calcNoise(noise);
+            row = lastRow - 1 + rowsPerProcess * j;
+            double sineVal = calcSine(sinePeriod, amplitude, row);
+            data.put(row, i, String.valueOf((avg + noiseVal + sineVal)));
+         }
+
+	System.out.print("createInputs settle 2 input " + i + " avg " + avg + " lastRow " + lastRow + " row " + row);
+	System.out.println();
+      }
+         lastRow = row;
+      lastSteadyStateRow = lastRow;
+
+	System.out.println("createInputs settle 2 complete lastRow " + lastRow);
 
       // Validation move rows
       int firstValidationRow = 13;
@@ -345,7 +515,8 @@ public class Generator {
                validationValue = Double.parseDouble(data.get(lastInRow, j));
             else
                validationValue = Double.parseDouble(input.get(i, j));
-            for (dataRow = lastInRow + 1; dataRow <= (lastInRow + rowsPerMove); dataRow++) {
+		// 2/18/25 Use lastSteadyStateRow
+            for (dataRow = lastSteadyStateRow + 1; dataRow <= (lastSteadyStateRow + rowsPerMove); dataRow++) {
                double noiseVal = calcNoise(noise);
                double sineVal = calcSine(sinePeriod, amplitude, dataRow);
                data.put(dataRow, j, String.valueOf((validationValue + noiseVal + sineVal)));
@@ -532,6 +703,8 @@ public class Generator {
          double steamPressure;
          double machineSpeed;
          double blendFreeness;
+	// 3/3/24 was not declared
+	 String blendFreeness_str;
 
          if (i > dynRow) {
             dynamicValues(i, searchCol("MV_ThinStockFlow", input), true);
@@ -607,9 +780,11 @@ public class Generator {
       // Since temporary dynamic values are being used, the method must go through every row so the dynamics can be calculated cumulatively
       labPeriod = labPeriod / processPeriod;
       for (int i = firstLab; i < lastLab + 1; i++){
+	System.out.println("calcLab lab values i " + i + " firstlab " + firstLab + " lastlab " + lastLab);
          String name = data.get(1, i);
          int numRows = labPeriod;
          for (int j = 3; j <= finalRow; j ++){
+		System.out.println("calcLab lab values i " + i + " firstlab " + firstLab + " lastlab " + lastLab + " finalRow " + finalRow + " j " + j);
             if (j > dynRow) {
                for (int input : inputNames) {
                   dynamicValues(j, input, true);
@@ -619,7 +794,18 @@ public class Generator {
                }
             }
             if ((j - 3) % numRows == 0)
-               data.put(j, i, String.valueOf(gainModel(name, stateRow, j)));
+	    {
+			System.out.println("calcLab lab values i " + i + " firstlab " + firstLab + " lastlab " + lastLab + " finalRow " + finalRow + " j " + j + " staterow " + stateRow + " numRows " + numRows);
+		if ( String.valueOf(gainModel(name, stateRow, j)).isEmpty() )
+               	{	data.put(j, i, "");	
+//			System.out.println("calcLab lab values i " + i + " firstlab " + firstLab + " lastlab " + lastLab + " finalRow " + finalRow + " j " + j + " empty string");
+		}
+		else	
+		{
+//			System.out.println("calcLab lab values i " + i + " firstlab " + firstLab + " lastlab " + lastLab + " finalRow " + finalRow + " j " + j + " not empty string");
+               		data.put(j, i, String.valueOf(gainModel(name, stateRow, j)));
+		}
+	    }
          }
       }
    }
@@ -628,9 +814,11 @@ public class Generator {
    /*
     * gainModel: Method that retrieves the lab configurations and calculate the final value
     */
-   private double gainModel(String name, int sRow, int row){
+   private double gainModel(String name, int sRow, int row)
+{
       double weightedInput = 0;
-      for (int i : labOutputs.get(name).rowKeySet()){
+      for (int i : labOutputs.get(name).rowKeySet())
+	{
          // First row in a labOutputs table is ignored since it does not contain a variable
          if (i == 1)
             continue;
@@ -646,30 +834,49 @@ public class Generator {
          double max;
          double min;
 
-         if (searchCol(varName, data) < sRow){
+
+	// 2/24/25 default slope
+         if (slope.isEmpty()) slope = "1";	
+
+	System.out.println("gainModel name " + name + " varname " + varName);
+
+         if (searchCol(varName, data) < sRow)
+	{
             col = searchCol(varName, input);
             max = Double.parseDouble(input.get(8, col));
             min = Double.parseDouble(input.get(9, col));
+	    System.out.println("gainModel name " + name + " varname " + varName + " found col " + col + " max " + max + " min " + min);
          }
-         else{
+         else
+	{
             col = searchCol(varName, state);
             max = Double.parseDouble(state.get(7, col));
             min = Double.parseDouble(state.get(8, col));
+	    System.out.println("gainModel name " + name + " varname " + varName + " not found col " + col + " max " + max + " min " + min);
          }
          double inVal;
          // With temporary dynamic values, the table from which the value is retrieved depends on if dynamics are required
          if (row > dynRow)
+	{
             inVal = Double.parseDouble(dyn.get(3, searchCol(varName, dyn)));
+		System.out.println("gainModel name " + name + " varname " + varName + " row<dynrow row " + row + " dynrow " + dynRow +" inVal " + inVal);
+	}
          else
+	{
             inVal = Double.parseDouble(data.get(row, searchCol(varName, data)));
+		System.out.println("gainModel name " + name + " varname " + varName + " row>=dynrow row " + row + " dynrow " + dynRow +" inVal " + inVal);
+	}
 
+	System.out.println("gainModel name " + name + " varname " + varName + " gainfunction asymptote " + asymptote + " order " + order + " model " + model + " weightedInput " + weightedInput + " slope " + slope);
          weightedInput = gainFunction(inVal, max, min, asymptote, order, slope, model, direction, shape) * weight / 100 + weightedInput;
-
       }
+	System.out.println("gainModel name " + name + " after weighted input");
       int labCol = searchCol(name, output);
+	System.out.println("gainModel name " + name + " after weighted input labCol " + labCol);
       double labMax = Double.parseDouble(output.get(4, labCol));
       double labNoise = calcNoise(Double.parseDouble(output.get(3, labCol)));
       double labMin = Double.parseDouble(output.get(5, labCol));
+	System.out.println("gainModel name " + name + " return labMax " + labMax + " labMin " + labMin + " labNoise " + labNoise + " weightedInput " + weightedInput);
       return (labMin + (labMax - labMin) * weightedInput) + labNoise;
    }
 
@@ -677,13 +884,18 @@ public class Generator {
     * gainFunction: Method that calculates graph values from the lab configurations
     */
    private double gainFunction(double inVal, double max, double min, String asymptote, String order, String slope,
-                              double model, double direction, double shape){
+                              double model, double direction, double shape)
+{
+	System.out.println("gainFunction");
+
       if (inVal > max)
          inVal = max;
       else if (inVal < min)
          inVal = min;
       double range = max - min;
       double gainInput = (inVal - min) / range;
+
+	System.out.println("gainFunction after inVal " + inVal + " range " + range + " gainInput " + gainInput);
 
       double gainAsymptote;
       if (asymptote.equals(""))
@@ -694,8 +906,12 @@ public class Generator {
          gainAsymptote = 0;
       else
          gainAsymptote = (Double.parseDouble(asymptote) - min) / range;
+
+	System.out.println("gainFunction after gainAsymptote " + gainAsymptote);
+
       // Polynomial
       if (model == 0){
+	System.out.println("gainFunction Polynomial model 0");
          double g1;
          double g2;
          double g0;
@@ -731,6 +947,7 @@ public class Generator {
             }
          }
          else {
+	System.out.println("gainFunction Polynomial model else");
             g2 = 0;
             if (direction == 0){
                g1 = -1;
@@ -745,11 +962,13 @@ public class Generator {
       }
       // Exponential
       else if (model == 1){
+	System.out.println("gainFunction Exponential model 1");
          double slopeSign;
          double gainDirection;
          if (Double.parseDouble(order) == 1){
             gainAsymptote = 0;
             if (shape == 0){
+	System.out.println("gainFunction Exponential model 1 shape 0");
                slopeSign = -1;
                if (direction == 0)
                   gainDirection = 1;
@@ -757,14 +976,17 @@ public class Generator {
                   gainDirection = 0;
             }
             else{
+	System.out.println("gainFunction Exponential model 1 shape else");
                slopeSign = 1;
                if (direction == 0)
                   gainDirection = 1;
                else
                   gainDirection = 0;
             }
+	System.out.println("gainFunction Exponential model 1 COMPLETE");
          }
          else {
+	System.out.println("gainFunction Exponential model else");
             slopeSign = -1;
             if (shape == 0){
                gainAsymptote = 0;
@@ -783,15 +1005,20 @@ public class Generator {
             else
                gainDirection = direction;
          }
+	System.out.println("gainFunction Exponential before num denom slope " + slope + " slopeSign " + slopeSign + " gainInput " + gainInput + " gainAsymptote " + gainAsymptote + " order " + order);
          double expNumerator = Math.exp(Double.parseDouble(slope) * slopeSign * Math.pow((gainInput - gainAsymptote), Double.parseDouble(order))) - 1;
+	System.out.println("gainFunction Exponential expNumerator " + expNumerator);
          double expDenominator = Math.exp(Double.parseDouble(slope) * slopeSign) - 1;
+	System.out.println("gainFunction Exponential expNumerator " + expNumerator + " expDenominator " + expDenominator);
          return gainDirection - (2 * gainDirection - 1) * (expNumerator / expDenominator);
       }
       // Sigmoid
       else {
+	System.out.println("gainFunction Sigmoid");
          double sigDenominator = 1 + Math.exp(-1 * Double.parseDouble(slope) * (gainInput - gainAsymptote));
          return 1 - (direction - (2 * direction - 1) / sigDenominator);
       }
+
    }
 
    /*
